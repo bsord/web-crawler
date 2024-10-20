@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
+from urllib.robotparser import RobotFileParser
 
 class WebCrawler:
     def __init__(self, max_depth, domains=None, blacklist=None):
@@ -11,6 +12,7 @@ class WebCrawler:
         self.errors = 0
         self.status_code_stats = {}
         self.domain_stats = {}
+        self.robots_parser = {}
 
     def is_valid_url(self, url):
         # Parse the URL
@@ -28,13 +30,28 @@ class WebCrawler:
 
         return True
 
-
+    def can_fetch(self, url):
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        
+        if domain not in self.robots_parser:
+            robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
+            rp = RobotFileParser()
+            rp.set_url(robots_url)
+            rp.read()
+            self.robots_parser[domain] = rp
+        
+        return self.robots_parser[domain].can_fetch("*", url)
 
     def crawl(self, start_url):
         self._crawl_recursive(start_url, 0)
 
     def _crawl_recursive(self, url, depth):
         if depth > self.max_depth or url in self.crawled_urls:
+            return
+
+        if not self.can_fetch(url):
+            print(f"Skipping {url} due to robots.txt restrictions")
             return
 
         try:
@@ -84,6 +101,7 @@ class WebCrawler:
         for domain, count in self.domain_stats.items():
             print(f"  {domain}: {count}")
 
+
 # Example usage
 if __name__ == "__main__":
     start_url = "https://www.reddit.com/r/TechSEO/comments/mzlvzj/crawler_test_site/"
@@ -94,3 +112,4 @@ if __name__ == "__main__":
     crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist)
     crawler.crawl(start_url)
     crawler.print_statistics()
+    

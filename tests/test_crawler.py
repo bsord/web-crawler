@@ -2,6 +2,7 @@ import pytest
 import sys
 import os
 from crawler import WebCrawler
+from unittest.mock import patch, MagicMock
 
 # Example Test for URL Validation
 def test_is_valid_url():
@@ -22,6 +23,8 @@ def test_is_valid_url():
     # Invalid URL (wrong domain)
     assert crawler.is_valid_url("https://www.otherdomain.com/page") == False
 
+    # Invalid URL (valid extension but not has query string)
+    assert crawler.is_valid_url("https://www.example.com/page?query=1") == True
 
 # Example Test for Title Extraction
 def test_get_title():
@@ -54,5 +57,30 @@ def test_max_depth():
     assert crawler._crawl_recursive(start_url, 0) == True
     assert crawler._crawl_recursive(start_url, 2) == False
 
+# New test for respecting robots.txt
+# New test for respecting robots.txt
+def test_respect_robots_txt():
+    crawler = WebCrawler(max_depth=2, domains=["example.com"])
+    
+    # Mock the RobotFileParser
+    mock_rp = MagicMock()
+    
+    with patch('crawler.RobotFileParser', return_value=mock_rp) as mock_robot_parser:
+        # Test allowed URL
+        mock_rp.can_fetch.return_value = True
+        assert crawler.can_fetch("https://www.example.com/allowed") == True
+        
+        # Test disallowed URL
+        mock_rp.can_fetch.return_value = False
+        assert crawler.can_fetch("https://www.example.com/disallowed") == False
+        
+        # Ensure RobotFileParser is called with correct URL
+        mock_rp.set_url.assert_called_with("https://www.example.com/robots.txt")
+        mock_rp.read.assert_called()
 
-
+        # Test caching of RobotFileParser instances
+        crawler.can_fetch("https://www.example.com/page1")
+        crawler.can_fetch("https://www.example.com/page2")
+        
+        # RobotFileParser should only be instantiated once per domain
+        assert mock_robot_parser.call_count == 1
