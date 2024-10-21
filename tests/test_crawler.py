@@ -87,7 +87,7 @@ def test_respect_robots_txt():
 
 # New test for crawling all domains when no specific domains are specified
 def test_crawl_all_domains():
-    crawler = WebCrawler(max_depth=2, domains=["anotherdomain.com"])  # No domains specified
+    crawler = WebCrawler(max_depth=2)  # No domains specified
     
     # Test URLs from different domains
     urls = [
