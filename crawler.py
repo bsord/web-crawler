@@ -4,6 +4,7 @@ from urllib.parse import urlparse, urljoin
 import warnings
 import json
 from collections import deque
+from urllib.robotparser import RobotFileParser
 
 class WebCrawler:
     def __init__(self, max_depth, domains=None, blacklist=None):
@@ -19,6 +20,7 @@ class WebCrawler:
         self.total_errors = 0
         self.status_code_stats = {}
         self.domain_stats = {}
+        self.robot_parsers = {}
 
     def load_blacklist(self, blacklist):
         if isinstance(blacklist, list):
@@ -108,6 +110,17 @@ class WebCrawler:
             return any(parsed_url.netloc == d or parsed_url.netloc.endswith('.' + d) for d in self.domains)
         return True
 
+    def can_fetch(self, url):
+        parsed_url = urlparse(url)
+        robots_url = f"{parsed_url.scheme}://{parsed_url.netloc}/robots.txt"
+        
+        if robots_url not in self.robot_parsers:
+            rp = RobotFileParser()
+            rp.set_url(robots_url)
+            rp.read()
+            self.robot_parsers[robots_url] = rp
+        
+        return self.robot_parsers[robots_url].can_fetch("*", url)
 
     def update_parent_statistics(self, parent_url, child_url):
         parent_stats = self.url_data[parent_url]['statistics']

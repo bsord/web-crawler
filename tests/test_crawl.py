@@ -19,5 +19,5 @@ def test_crawl(mock_get):
     
     # Verify the crawled URL is in the results
     assert start_url in crawler.crawled_urls
-    assert crawler.crawled_urls[start_url]['status_code'] == 200
-    assert crawler.crawled_urls[start_url]['title'] == "Mock Page"
+    assert crawler.url_data[start_url]['status_code'] == 200
+    assert crawler.url_data[start_url]['title'] == "Mock Page"

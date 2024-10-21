@@ -27,16 +27,16 @@ def test_is_valid_url():
     assert crawler.is_valid_url("https://www.example.com/page?query=1") == True
 
 # Example Test for Title Extraction
-def test_get_title():
+def test_extract_title():
     crawler = WebCrawler(max_depth=2)
     html_content = "<html><head><title>Test Page</title></head><body>Content</body></html>"
     
-    title = crawler.get_title(html_content)
+    title = crawler.extract_title(html_content)
     assert title == "Test Page"
     
     # Case where title is missing
     html_no_title = "<html><head></head><body>Content</body></html>"
-    title_no_title = crawler.get_title(html_no_title)
+    title_no_title = crawler.extract_title(html_no_title)
     assert title_no_title == "No Title"
 
 # Example Test for Crawl Depth
@@ -103,19 +103,18 @@ def test_crawl_all_domains():
 def test_load_blacklist_from_list():
     blacklist = ['.jpg', '.png', '.css']
     crawler = WebCrawler(max_depth=2, blacklist=blacklist)
-    assert crawler.blacklist == blacklist
+    assert set(crawler.blacklist) == set(blacklist)
 
-def test_load_blacklist_from_file():
-    file_content = ".jpg\n.png\n.css\n"
-    with patch("builtins.open", mock_open(read_data=file_content)):
-        crawler = WebCrawler(max_depth=2, blacklist="blacklist.txt")
-        assert crawler.blacklist == ['.jpg', '.png', '.css']
+def test_load_blacklist_from_file(tmp_path):
+    blacklist_file = tmp_path / "blacklist.txt"
+    blacklist_file.write_text(".jpg\n.png\n.css")
+    crawler = WebCrawler(max_depth=2, blacklist=str(blacklist_file))
+    assert set(crawler.blacklist) == {'.jpg', '.png', '.css'}
 
 def test_load_blacklist_file_not_found():
-    with patch("builtins.open", side_effect=FileNotFoundError):
-        with pytest.warns(UserWarning, match="Blacklist file 'nonexistent.txt' not found. Using empty blacklist."):
-            crawler = WebCrawler(max_depth=2, blacklist="nonexistent.txt")
-            assert crawler.blacklist == []
+    with pytest.warns(UserWarning, match="Blacklist file 'nonexistent_file.txt' not found"):
+        crawler = WebCrawler(max_depth=2, blacklist="nonexistent_file.txt")
+    assert crawler.blacklist == set()
 
 def test_load_blacklist_invalid_type():
     with pytest.raises(ValueError, match="Blacklist must be a list of extensions, a file path, or None"):
