@@ -120,9 +120,9 @@ class WebCrawler:
 
 # Example usage
 if __name__ == "__main__":
-    start_url = "https://www.reddit.com/r/TechSEO/comments/mzlvzj/crawler_test_site/"
+    start_url = "https://toscrape.com/"
     max_depth = 2
-    domains = ["reddit.com"]
+    domains = []
     
     # Option 1: List of extensions
     blacklist = ['.jpg', '.css', '.js', '.png']
