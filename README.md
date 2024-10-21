@@ -27,7 +27,8 @@ Ensure you have the following installed on your machine:
 
 To clone the repository using `git`, run:
 ```sh
-git clone https://github.com/yourusername/web-crawler.git cd web-crawler
+git clone https://github.com/bsord/web-crawler.git
+cd web-crawler
 ```
 
 Alternatively, download the repository as a ZIP file, extract it, and navigate to the project folder.
@@ -62,7 +63,14 @@ You can now run the web crawler:
 python crawler.py
 ```
 
-### 5. Deactivate the Virtual Environment
+### 5. Run tests
+
+Execute tests using pytest:
+```sh
+pytest
+```
+
+### 6. Deactivate the Virtual Environment
 
 When you're done, deactivate the virtual environment by running:
 ```sh

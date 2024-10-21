@@ -57,8 +57,8 @@ def test_max_depth():
     assert crawler._crawl_recursive(start_url, 0) == True
     assert crawler._crawl_recursive(start_url, 2) == False
 
-# New test for respecting robots.txt
-# New test for respecting robots.txt
+
+# Test for respecting robots.txt
 def test_respect_robots_txt():
     crawler = WebCrawler(max_depth=2, domains=["example.com"])
     
