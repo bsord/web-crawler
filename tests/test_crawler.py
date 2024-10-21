@@ -84,3 +84,17 @@ def test_respect_robots_txt():
         
         # RobotFileParser should only be instantiated once per domain
         assert mock_robot_parser.call_count == 1
+
+# New test for crawling all domains when no specific domains are specified
+def test_crawl_all_domains():
+    crawler = WebCrawler(max_depth=2, domains=["anotherdomain.com"])  # No domains specified
+    
+    # Test URLs from different domains
+    urls = [
+        "https://example.com/page1",
+        "https://anotherdomain.com/page2",
+        "https://thirddomain.org/page3"
+    ]
+    
+    for url in urls:
+        assert crawler.is_valid_url(url) == True, f"Failed to validate {url}"
