@@ -1,135 +1,145 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
-from urllib.robotparser import RobotFileParser
 import warnings
+import json
+from collections import deque
 
 class WebCrawler:
     def __init__(self, max_depth, domains=None, blacklist=None):
         self.max_depth = max_depth
-        self.domains = domains if domains else []
+        self.domains = set(domains) if domains else set()
         self.blacklist = self.load_blacklist(blacklist)
-        self.crawled_urls = {}
-        self.errors = 0
+        
+        self.crawled_urls = set()
+        self.url_data = {}
+        self.queue = deque()
+        
+        self.total_urls_crawled = 0
+        self.total_errors = 0
         self.status_code_stats = {}
         self.domain_stats = {}
-        self.robots_parser = {}
 
     def load_blacklist(self, blacklist):
         if isinstance(blacklist, list):
-            return blacklist
+            return set(blacklist)
         elif isinstance(blacklist, str):
             try:
                 with open(blacklist, 'r') as f:
-                    return [line.strip() for line in f if line.strip()]
+                    return set(line.strip() for line in f if line.strip())
             except FileNotFoundError:
                 warnings.warn(f"Blacklist file '{blacklist}' not found. Using empty blacklist.")
-                return []
+                return set()
         elif blacklist is None:
-            return []
+            return set()
         else:
             raise ValueError("Blacklist must be a list of extensions, a file path, or None")
 
-    def is_valid_url(self, url):
-        # Parse the URL
-        parsed_url = urlparse(url)
-        
-        # Ignore blacklisted file extensions in the path or fragment
-        if any(parsed_url.path.endswith(ext) or parsed_url.fragment.endswith(ext) for ext in self.blacklist):
-            return False
-
-        # Restrict crawling to specific domains
-        if self.domains:
-            domain = parsed_url.netloc
-            if not any(domain.endswith(d) for d in self.domains):
-                return False
-
-        return True
-
-    def can_fetch(self, url):
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc
-        
-        if domain not in self.robots_parser:
-            robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
-            rp = RobotFileParser()
-            rp.set_url(robots_url)
-            rp.read()
-            self.robots_parser[domain] = rp
-        
-        return self.robots_parser[domain].can_fetch("*", url)
-
     def crawl(self, start_url):
-        self._crawl_recursive(start_url, 0)
+        self.queue.append((start_url, 0, None))  # (url, depth, parent_url)
+        
+        while self.queue:
+            url, depth, parent_url = self.queue.popleft()
+            
+            if depth > self.max_depth or url in self.crawled_urls:
+                continue
+            
+            self.crawled_urls.add(url)
+            
+            try:
+                response = requests.get(url, timeout=5)
+                content = response.content
+                status_code = response.status_code
+                
+                links = self.extract_links(content, url) if 'text/html' in response.headers.get('Content-Type', '') else []
+                valid_links = [link for link in links if self.is_valid_url(link)]
+                
+                title = self.extract_title(content)
+                self.url_data[url] = {
+                    'status_code': status_code,
+                    'content_size': len(content),
+                    'title': title,
+                    'statistics': {
+                        'total_urls_crawled': 1,  # Start with 1 for the current URL
+                        'total_errors': 0,
+                        'status_code_stats': {str(status_code): 1},
+                        'domain_stats': {urlparse(url).netloc: 1}  # Include the current URL's domain
+                    }
+                }
+                
+                for link in valid_links:
+                    if link not in self.crawled_urls:
+                        self.queue.append((link, depth + 1, url))
+                
+            except requests.RequestException as e:
+                status_code = e.response.status_code if hasattr(e, 'response') and e.response is not None else None
+                self.url_data[url] = {
+                    'status_code': status_code,
+                    'content_size': 0,
+                    'title': 'Error',
+                    'statistics': {
+                        'total_urls_crawled': 1,  # Start with 1 for the current URL
+                        'total_errors': 1,
+                        'status_code_stats': {str(status_code): 1} if status_code else {},
+                        'domain_stats': {urlparse(url).netloc: 1}  # Include the current URL's domain
+                    }
+                }
 
-    def _crawl_recursive(self, url, depth):
-        if depth > self.max_depth or url in self.crawled_urls:
-            return
+            if parent_url:
+                self.update_parent_statistics(parent_url, url)
 
-        if not self.can_fetch(url):
-            print(f"Skipping {url} due to robots.txt restrictions")
-            return
+        # Return the first 25 results
+        return list(self.url_data.items())[:25]
 
-        try:
-            response = requests.get(url, timeout=5)
-            self.crawled_urls[url] = {
-                'status_code': response.status_code,
-                'content_size': len(response.content),
-                'title': self.get_title(response.content)
-            }
+    def extract_links(self, content, base_url):
+        soup = BeautifulSoup(content, 'html.parser')
+        return [urljoin(base_url, link.get('href')) for link in soup.find_all('a', href=True)]
 
-            # Update status code statistics
-            self.status_code_stats[response.status_code] = self.status_code_stats.get(response.status_code, 0) + 1
-
-            # Update domain statistics
-            domain = urlparse(url).netloc
-            self.domain_stats[domain] = self.domain_stats.get(domain, 0) + 1
-
-            # Continue crawling the links on this page if it's an HTML page
-            if 'text/html' in response.headers['Content-Type']:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                for link in soup.find_all('a', href=True):
-                    print('link', link['href'])
-                    next_url = urljoin(url, link['href'])
-                    if self.is_valid_url(next_url):
-                        self._crawl_recursive(next_url, depth + 1)
-
-        except requests.RequestException as e:
-            self.errors += 1
-            self.crawled_urls[url] = {
-                'status_code': None,
-                'content_size': 0,
-                'title': 'Error'
-            }
-
-    def get_title(self, html_content):
-        soup = BeautifulSoup(html_content, 'html.parser')
+    def extract_title(self, content):
+        soup = BeautifulSoup(content, 'html.parser')
         title_tag = soup.find('title')
         return title_tag.string if title_tag else 'No Title'
 
-    def print_statistics(self):
-        print("Total URLs crawled:", len(self.crawled_urls))
-        print("Total errors encountered:", self.errors)
-        print("\nStatus Code Statistics:")
-        for code, count in self.status_code_stats.items():
-            print(f"  {code}: {count}")
-        print("\nDomain Statistics:")
-        for domain, count in self.domain_stats.items():
-            print(f"  {domain}: {count}")
+    def is_valid_url(self, url):
+        parsed_url = urlparse(url)
+        if any(parsed_url.path.endswith(ext) or parsed_url.fragment.endswith(ext) for ext in self.blacklist):
+            return False
+        if self.domains:
+            return any(parsed_url.netloc == d or parsed_url.netloc.endswith('.' + d) for d in self.domains)
+        return True
 
+
+    def update_parent_statistics(self, parent_url, child_url):
+        parent_stats = self.url_data[parent_url]['statistics']
+        child_info = self.url_data[child_url]
+        child_stats = child_info['statistics']
+
+        parent_stats['total_urls_crawled'] += child_stats['total_urls_crawled']
+        parent_stats['total_errors'] += child_stats['total_errors']
+        
+        # Update status code stats
+        for code, count in child_stats['status_code_stats'].items():
+            parent_stats['status_code_stats'][code] = parent_stats['status_code_stats'].get(code, 0) + count
+        
+        # Update domain stats
+        for domain, count in child_stats['domain_stats'].items():
+            parent_stats['domain_stats'][domain] = parent_stats['domain_stats'].get(domain, 0) + count
 
 # Example usage
 if __name__ == "__main__":
     start_url = "https://toscrape.com/"
     max_depth = 2
-    domains = []
-    
-    # Option 1: List of extensions
+    domains = []  # This will allow crawling of subdomains
     blacklist = ['.jpg', '.css', '.js', '.png']
-    
-    # Option 2: File path
-    # blacklist = "blacklist.txt"
 
     crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist)
-    crawler.crawl(start_url)
-    crawler.print_statistics()
+    results = crawler.crawl(start_url)
+    
+    print("First 25 crawled URLs and their data:")
+    for url, data in results:
+        print(f"\nURL: {url}")
+        print(f"Status Code: {data['status_code']}")
+        print(f"Content Size: {data['content_size']}")
+        print(f"Title: {data['title']}")
+        print("Statistics:")
+        print(json.dumps(data['statistics'], indent=2))
