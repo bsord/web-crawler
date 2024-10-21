@@ -2,7 +2,7 @@ import pytest
 import sys
 import os
 from crawler import WebCrawler
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 # Example Test for URL Validation
 def test_is_valid_url():
@@ -98,3 +98,40 @@ def test_crawl_all_domains():
     
     for url in urls:
         assert crawler.is_valid_url(url) == True, f"Failed to validate {url}"
+
+# New tests for blacklist functionality
+def test_load_blacklist_from_list():
+    blacklist = ['.jpg', '.png', '.css']
+    crawler = WebCrawler(max_depth=2, blacklist=blacklist)
+    assert crawler.blacklist == blacklist
+
+def test_load_blacklist_from_file():
+    file_content = ".jpg\n.png\n.css\n"
+    with patch("builtins.open", mock_open(read_data=file_content)):
+        crawler = WebCrawler(max_depth=2, blacklist="blacklist.txt")
+        assert crawler.blacklist == ['.jpg', '.png', '.css']
+
+def test_load_blacklist_file_not_found():
+    with patch("builtins.open", side_effect=FileNotFoundError):
+        with pytest.warns(UserWarning, match="Blacklist file 'nonexistent.txt' not found. Using empty blacklist."):
+            crawler = WebCrawler(max_depth=2, blacklist="nonexistent.txt")
+            assert crawler.blacklist == []
+
+def test_load_blacklist_invalid_type():
+    with pytest.raises(ValueError, match="Blacklist must be a list of extensions, a file path, or None"):
+        WebCrawler(max_depth=2, blacklist=123)
+
+def test_is_valid_url_with_blacklist():
+    crawler = WebCrawler(max_depth=2, domains=["example.com"], blacklist=['.jpg', '.png'])
+    
+    assert crawler.is_valid_url("https://www.example.com/page.html") == True
+    assert crawler.is_valid_url("https://www.example.com/image.jpg") == False
+    assert crawler.is_valid_url("https://www.example.com/image.png") == False
+    assert crawler.is_valid_url("https://www.example.com/image.gif") == True
+
+def test_is_valid_url_with_empty_blacklist():
+    crawler = WebCrawler(max_depth=2, domains=["example.com"])
+    
+    assert crawler.is_valid_url("https://www.example.com/page.html") == True
+    assert crawler.is_valid_url("https://www.example.com/image.jpg") == True
+    assert crawler.is_valid_url("https://www.example.com/image.png") == True

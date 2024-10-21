@@ -2,17 +2,33 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from urllib.robotparser import RobotFileParser
+import warnings
 
 class WebCrawler:
     def __init__(self, max_depth, domains=None, blacklist=None):
         self.max_depth = max_depth
         self.domains = domains if domains else []
-        self.blacklist = blacklist if blacklist else []
+        self.blacklist = self.load_blacklist(blacklist)
         self.crawled_urls = {}
         self.errors = 0
         self.status_code_stats = {}
         self.domain_stats = {}
         self.robots_parser = {}
+
+    def load_blacklist(self, blacklist):
+        if isinstance(blacklist, list):
+            return blacklist
+        elif isinstance(blacklist, str):
+            try:
+                with open(blacklist, 'r') as f:
+                    return [line.strip() for line in f if line.strip()]
+            except FileNotFoundError:
+                warnings.warn(f"Blacklist file '{blacklist}' not found. Using empty blacklist.")
+                return []
+        elif blacklist is None:
+            return []
+        else:
+            raise ValueError("Blacklist must be a list of extensions, a file path, or None")
 
     def is_valid_url(self, url):
         # Parse the URL
@@ -107,9 +123,13 @@ if __name__ == "__main__":
     start_url = "https://www.reddit.com/r/TechSEO/comments/mzlvzj/crawler_test_site/"
     max_depth = 2
     domains = ["reddit.com"]
+    
+    # Option 1: List of extensions
     blacklist = ['.jpg', '.css', '.js', '.png']
+    
+    # Option 2: File path
+    # blacklist = "blacklist.txt"
 
     crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist)
     crawler.crawl(start_url)
     crawler.print_statistics()
-    

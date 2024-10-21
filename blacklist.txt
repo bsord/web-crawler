@@ -1,0 +1,11 @@
+.jpg
+.css
+.js
+.png
+.gif
+.svg
+.webp
+.pdf
+.docx
+.xlsx
+.pptx
