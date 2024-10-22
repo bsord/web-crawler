@@ -91,7 +91,7 @@ class WebCrawler:
                 self.update_parent_statistics(parent_url, url)
 
         # Return the first 25 results
-        return list(self.url_data.items())[:25]
+        return list(self.url_data.items())
 
     def extract_links(self, content, base_url):
         soup = BeautifulSoup(content, 'html.parser')

@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 You can now run the web crawler:
 ```sh
-python crawler.py
+streamlit run app.py
 ```
 
 ### 5. Run tests
