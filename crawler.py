@@ -7,12 +7,15 @@ from collections import deque
 from urllib.robotparser import RobotFileParser
 from database import Session
 from models import CrawlResult
+import time
 
 class WebCrawler:
-    def __init__(self, max_depth, domains=None, blacklist=None):
+    def __init__(self, max_depth, domains=None, blacklist=None, requests_per_second=2):
         self.max_depth = max_depth
         self.domains = set(domains) if domains else set()
         self.blacklist = self.load_blacklist(blacklist)
+        self.requests_per_second = requests_per_second
+        self.last_request_time = 0
         
         self.crawled_urls = set()
         self.url_data = {}
@@ -40,6 +43,20 @@ class WebCrawler:
         else:
             raise ValueError("Blacklist must be a list of extensions, a file path, or None")
 
+    def wait_for_rate_limit(self):
+        """Ensure we don't exceed our rate limit by waiting if necessary."""
+        if self.requests_per_second <= 0:
+            return
+            
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        time_to_wait = (1.0 / self.requests_per_second) - time_since_last_request
+        
+        if time_to_wait > 0:
+            time.sleep(time_to_wait)
+        
+        self.last_request_time = time.time()
+
     def crawl(self, start_url):
         self.queue.append((start_url, 0, None))  # (url, depth, parent_url)
         
@@ -53,6 +70,7 @@ class WebCrawler:
             self.crawled_urls.add(url)
             
             try:
+                self.wait_for_rate_limit()  # Add rate limiting
                 response = requests.get(url, timeout=5)
                 content = response.content
                 status_code = response.status_code
@@ -214,7 +232,7 @@ if __name__ == "__main__":
     domains = []  # This will allow crawling of subdomains
     blacklist = ['.jpg', '.css', '.js', '.png']
 
-    crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist)
+    crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist, requests_per_second=.5)
     results = crawler.crawl(start_url)
     
     print("First 25 crawled URLs and their data:")

@@ -11,6 +11,8 @@ def main():
     # Input fields
     start_url = st.text_input("Enter the starting URL:", "https://toscrape.com/")
     max_depth = st.slider("Maximum crawl depth:", 1, 5, 2)
+    requests_per_second = st.slider("Requests per second:", 0.1, 10.0, 2.0, 0.1,
+                                  help="Rate limit for crawler requests. Lower values are gentler on the target server.")
     domains = st.text_input("Allowed domains (comma-separated, leave empty for all):", "")
     blacklist = st.text_input("Blacklisted extensions (comma-separated):", ".jpg,.css,.js,.png")
 
@@ -19,8 +21,13 @@ def main():
         domains = [d.strip() for d in domains.split(",")] if domains else []
         blacklist = [b.strip() for b in blacklist.split(",")]
 
-        # Initialize and run the crawler
-        crawler = WebCrawler(max_depth=max_depth, domains=domains, blacklist=blacklist)
+        # Initialize and run the crawler with rate limiting
+        crawler = WebCrawler(
+            max_depth=max_depth, 
+            domains=domains, 
+            blacklist=blacklist,
+            requests_per_second=requests_per_second
+        )
         crawler.crawl(start_url)
 
         # Read results from database
