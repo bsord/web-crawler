@@ -42,6 +42,7 @@ class WebCrawler:
         
         while self.queue:
             url, depth, parent_url = self.queue.popleft()
+            print(f"Crawling URL: {url}")
             
             if depth > self.max_depth or url in self.crawled_urls:
                 continue
@@ -58,14 +59,16 @@ class WebCrawler:
                 
                 title = self.extract_title(content)
                 self.url_data[url] = {
+                    'url': url,
                     'status_code': status_code,
                     'content_size': len(content),
                     'title': title,
+                    'parent_url': parent_url,
                     'statistics': {
-                        'total_urls_crawled': 1,  # Start with 1 for the current URL
+                        'total_urls_crawled': 0,
                         'total_errors': 0,
-                        'status_code_stats': {str(status_code): 1},
-                        'domain_stats': {urlparse(url).netloc: 1}  # Include the current URL's domain
+                        'status_code_stats': {},
+                        'domain_stats': {}
                     }
                 }
                 
@@ -76,21 +79,22 @@ class WebCrawler:
             except requests.RequestException as e:
                 status_code = e.response.status_code if hasattr(e, 'response') and e.response is not None else None
                 self.url_data[url] = {
+                    'url': url,
                     'status_code': status_code,
-                    'content_size': 0,
-                    'title': 'Error',
+                    'content_size': len(content),
+                    'title': title,
+                    'parent_url': parent_url,
                     'statistics': {
-                        'total_urls_crawled': 1,  # Start with 1 for the current URL
-                        'total_errors': 1,
-                        'status_code_stats': {str(status_code): 1} if status_code else {},
-                        'domain_stats': {urlparse(url).netloc: 1}  # Include the current URL's domain
+                        'total_urls_crawled': 0,
+                        'total_errors': 0,
+                        'status_code_stats': {},
+                        'domain_stats': {}
                     }
                 }
 
             if parent_url:
                 self.update_parent_statistics(parent_url, url)
 
-        # Return the first 25 results
         return list(self.url_data.items())
 
     def extract_links(self, content, base_url):
@@ -125,18 +129,19 @@ class WebCrawler:
     def update_parent_statistics(self, parent_url, child_url):
         parent_stats = self.url_data[parent_url]['statistics']
         child_info = self.url_data[child_url]
-        child_stats = child_info['statistics']
+        status_code = child_info['status_code']
+        is_error = status_code >= 400
 
-        parent_stats['total_urls_crawled'] += child_stats['total_urls_crawled']
-        parent_stats['total_errors'] += child_stats['total_errors']
+        parent_stats['total_urls_crawled'] += 1
+        parent_stats['total_errors'] += 1 if is_error else 0
         
-        # Update status code stats
-        for code, count in child_stats['status_code_stats'].items():
-            parent_stats['status_code_stats'][code] = parent_stats['status_code_stats'].get(code, 0) + count
         
-        # Update domain stats
-        for domain, count in child_stats['domain_stats'].items():
-            parent_stats['domain_stats'][domain] = parent_stats['domain_stats'].get(domain, 0) + count
+        # Update domain statistics
+        child_domain = urlparse(child_url).netloc
+        parent_stats['domain_stats'][child_domain] = parent_stats['domain_stats'].get(child_domain, 0) + 1
+
+        # Update status code statistics
+        parent_stats['status_code_stats'][status_code] = parent_stats['status_code_stats'].get(status_code, 0) + 1
 
 # Example usage
 if __name__ == "__main__":

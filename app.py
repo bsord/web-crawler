@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 from crawler import WebCrawler
 import plotly.express as px
-
+st.set_page_config(layout="wide")
 def main():
     st.title("Web Crawler App")
-
+    
     # Input fields
     start_url = st.text_input("Enter the starting URL:", "https://toscrape.com/")
     max_depth = st.slider("Maximum crawl depth:", 1, 5, 2)
@@ -28,11 +28,14 @@ def main():
         df = pd.DataFrame([
             {
                 "URL": url,
+                "Parent URL": data['parent_url'],
                 "Status Code": data['status_code'],
                 "Content Size": data['content_size'],
                 "Title": data['title'],
                 "Total URLs Crawled": data['statistics']['total_urls_crawled'],
-                "Total Errors": data['statistics']['total_errors']
+                "Total Errors": data['statistics']['total_errors'],
+                "Status Code Stats": str(data['statistics']['status_code_stats']),  # Convert dict to string
+                "Domain Stats": str(data['statistics']['domain_stats'])  # Convert dict to string
             } for url, data in results
         ])
 
@@ -45,6 +48,8 @@ def main():
         # Status Code Distribution
         status_codes = [data['status_code'] for _, data in results if data['status_code']]
         fig_status = px.histogram(x=status_codes, labels={'x': 'Status Code', 'y': 'Count'}, title="Status Code Distribution")
+        # Force x-axis to treat values as strings/categories
+        fig_status.update_xaxes(type='category')
         st.plotly_chart(fig_status)
 
         # Content Size Distribution
