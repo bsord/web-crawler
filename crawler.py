@@ -5,6 +5,8 @@ import warnings
 import json
 from collections import deque
 from urllib.robotparser import RobotFileParser
+from database import Session
+from models import CrawlResult
 
 class WebCrawler:
     def __init__(self, max_depth, domains=None, blacklist=None):
@@ -21,6 +23,7 @@ class WebCrawler:
         self.status_code_stats = {}
         self.domain_stats = {}
         self.robot_parsers = {}
+        self.db_session = Session()
 
     def load_blacklist(self, blacklist):
         if isinstance(blacklist, list):
@@ -76,6 +79,26 @@ class WebCrawler:
                     if link not in self.crawled_urls:
                         self.queue.append((link, depth + 1, url))
                 
+                # Save to database
+                existing_record = self.db_session.query(CrawlResult).filter_by(url=url).first()
+                if existing_record:
+                    existing_record.parent_url = parent_url
+                    existing_record.status_code = status_code
+                    existing_record.content_size = len(content)
+                    existing_record.title = title
+                    existing_record.statistics = self.url_data[url]['statistics']
+                else:
+                    crawl_result = CrawlResult(
+                        url=url,
+                        parent_url=parent_url,
+                        status_code=status_code,
+                        content_size=len(content),
+                        title=title,
+                        statistics=self.url_data[url]['statistics']
+                    )
+                    self.db_session.add(crawl_result)
+                self.db_session.commit()
+                
             except requests.RequestException as e:
                 status_code = e.response.status_code if hasattr(e, 'response') and e.response is not None else None
                 self.url_data[url] = {
@@ -91,10 +114,31 @@ class WebCrawler:
                         'domain_stats': {}
                     }
                 }
+                
+                # Save error to database
+                existing_record = self.db_session.query(CrawlResult).filter_by(url=url).first()
+                if existing_record:
+                    existing_record.parent_url = parent_url
+                    existing_record.status_code = status_code
+                    existing_record.content_size = 0
+                    existing_record.title = 'Error'
+                    existing_record.statistics = self.url_data[url]['statistics']
+                else:
+                    crawl_result = CrawlResult(
+                        url=url,
+                        parent_url=parent_url,
+                        status_code=status_code,
+                        content_size=0,
+                        title='Error',
+                        statistics=self.url_data[url]['statistics']
+                    )
+                    self.db_session.add(crawl_result)
+                self.db_session.commit()
 
             if parent_url:
                 self.update_parent_statistics(parent_url, url)
 
+        self.db_session.close()
         return list(self.url_data.items())
 
     def extract_links(self, content, base_url):
@@ -135,13 +179,33 @@ class WebCrawler:
         parent_stats['total_urls_crawled'] += 1
         parent_stats['total_errors'] += 1 if is_error else 0
         
-        
         # Update domain statistics
         child_domain = urlparse(child_url).netloc
         parent_stats['domain_stats'][child_domain] = parent_stats['domain_stats'].get(child_domain, 0) + 1
 
         # Update status code statistics
         parent_stats['status_code_stats'][status_code] = parent_stats['status_code_stats'].get(status_code, 0) + 1
+
+        # Update existing record in database
+        existing_record = self.db_session.query(CrawlResult).filter_by(url=parent_url).first()
+        if existing_record:
+            existing_record.statistics = parent_stats
+            existing_record.parent_url = self.url_data[parent_url].get('parent_url')
+            existing_record.status_code = self.url_data[parent_url].get('status_code')
+            existing_record.content_size = self.url_data[parent_url].get('content_size')
+            existing_record.title = self.url_data[parent_url].get('title')
+        else:
+            crawl_result = CrawlResult(
+                url=parent_url,
+                parent_url=self.url_data[parent_url].get('parent_url'),
+                status_code=self.url_data[parent_url].get('status_code'),
+                content_size=self.url_data[parent_url].get('content_size'),
+                title=self.url_data[parent_url].get('title'),
+                statistics=parent_stats
+            )
+            self.db_session.add(crawl_result)
+        
+        self.db_session.commit()
 
 # Example usage
 if __name__ == "__main__":
