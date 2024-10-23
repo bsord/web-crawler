@@ -8,14 +8,17 @@ from urllib.robotparser import RobotFileParser
 from database import Session
 from models import CrawlResult
 import time
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
+import logging
 
 class WebCrawler:
-    def __init__(self, max_depth, domains=None, blacklist=None, requests_per_second=2):
+    def __init__(self, max_depth, domains=None, blacklist=None, requests_per_second=2, max_retries=3):
         self.max_depth = max_depth
         self.domains = set(domains) if domains else set()
         self.blacklist = self.load_blacklist(blacklist)
         self.requests_per_second = requests_per_second
         self.last_request_time = 0
+        self.logger = logging.getLogger(__name__)
         
         self.crawled_urls = set()
         self.url_data = {}
@@ -57,6 +60,26 @@ class WebCrawler:
         
         self.last_request_time = time.time()
 
+    def make_request(self, url):
+        """Make a single request with rate limiting"""
+        self.wait_for_rate_limit()
+        return requests.get(url, timeout=5)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type((
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.RequestException
+        )),
+        before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING)
+    )
+    def crawl_url_with_retry(self, url):
+        """Attempt to get the URL content with retries"""
+        response = self.make_request(url)
+        return response.content, response.status_code, response.headers
+
     def crawl(self, start_url):
         self.queue.append((start_url, 0, None))  # (url, depth, parent_url)
         
@@ -70,12 +93,11 @@ class WebCrawler:
             self.crawled_urls.add(url)
             
             try:
-                self.wait_for_rate_limit()  # Add rate limiting
-                response = requests.get(url, timeout=5)
-                content = response.content
-                status_code = response.status_code
+                # Attempt to crawl with retries
+                content, status_code, headers = self.crawl_url_with_retry(url)
                 
-                links = self.extract_links(content, url) if 'text/html' in response.headers.get('Content-Type', '') else []
+                # Process successful response
+                links = self.extract_links(content, url) if 'text/html' in headers.get('Content-Type', '') else []
                 valid_links = [link for link in links if self.is_valid_url(link)]
                 
                 title = self.extract_title(content)
@@ -93,37 +115,24 @@ class WebCrawler:
                     }
                 }
                 
+                # Save successful crawl to database
+                self.save_to_database(url, parent_url, status_code, len(content), title)
+                
+                # Add valid links to queue
                 for link in valid_links:
                     if link not in self.crawled_urls:
                         self.queue.append((link, depth + 1, url))
                 
-                # Save to database
-                existing_record = self.db_session.query(CrawlResult).filter_by(url=url).first()
-                if existing_record:
-                    existing_record.parent_url = parent_url
-                    existing_record.status_code = status_code
-                    existing_record.content_size = len(content)
-                    existing_record.title = title
-                    existing_record.statistics = self.url_data[url]['statistics']
-                else:
-                    crawl_result = CrawlResult(
-                        url=url,
-                        parent_url=parent_url,
-                        status_code=status_code,
-                        content_size=len(content),
-                        title=title,
-                        statistics=self.url_data[url]['statistics']
-                    )
-                    self.db_session.add(crawl_result)
-                self.db_session.commit()
+            except Exception as e:
+                # This will only execute after all retries have failed
+                self.logger.error(f"Failed to crawl {url} after all retries: {str(e)}")
+                status_code = getattr(getattr(e, 'response', None), 'status_code', None)
                 
-            except requests.RequestException as e:
-                status_code = e.response.status_code if hasattr(e, 'response') and e.response is not None else None
                 self.url_data[url] = {
                     'url': url,
                     'status_code': status_code,
-                    'content_size': len(content),
-                    'title': title,
+                    'content_size': 0,
+                    'title': 'Error',
                     'parent_url': parent_url,
                     'statistics': {
                         'total_urls_crawled': 0,
@@ -133,25 +142,8 @@ class WebCrawler:
                     }
                 }
                 
-                # Save error to database
-                existing_record = self.db_session.query(CrawlResult).filter_by(url=url).first()
-                if existing_record:
-                    existing_record.parent_url = parent_url
-                    existing_record.status_code = status_code
-                    existing_record.content_size = 0
-                    existing_record.title = 'Error'
-                    existing_record.statistics = self.url_data[url]['statistics']
-                else:
-                    crawl_result = CrawlResult(
-                        url=url,
-                        parent_url=parent_url,
-                        status_code=status_code,
-                        content_size=0,
-                        title='Error',
-                        statistics=self.url_data[url]['statistics']
-                    )
-                    self.db_session.add(crawl_result)
-                self.db_session.commit()
+                # Save error to database only after all retries have failed
+                self.save_to_database(url, parent_url, status_code, 0, 'Error')
 
             if parent_url:
                 self.update_parent_statistics(parent_url, url)
@@ -223,6 +215,27 @@ class WebCrawler:
             )
             self.db_session.add(crawl_result)
         
+        self.db_session.commit()
+
+    def save_to_database(self, url, parent_url, status_code, content_size, title):
+        """Helper method to handle database operations"""
+        existing_record = self.db_session.query(CrawlResult).filter_by(url=url).first()
+        if existing_record:
+            existing_record.parent_url = parent_url
+            existing_record.status_code = status_code
+            existing_record.content_size = content_size
+            existing_record.title = title
+            existing_record.statistics = self.url_data[url]['statistics']
+        else:
+            crawl_result = CrawlResult(
+                url=url,
+                parent_url=parent_url,
+                status_code=status_code,
+                content_size=content_size,
+                title=title,
+                statistics=self.url_data[url]['statistics']
+            )
+            self.db_session.add(crawl_result)
         self.db_session.commit()
 
 # Example usage
