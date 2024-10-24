@@ -1,6 +1,6 @@
 # Ignore database files 
 *.db
-
+crawler_state.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
